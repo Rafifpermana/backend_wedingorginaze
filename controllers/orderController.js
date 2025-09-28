@@ -1,4 +1,5 @@
 const db = require("../config/database");
+const { sendOrderConfirmationEmail } = require("../utils/emailService");
 
 const createOrder = (req, res) => {
   const { Id_catalog, Email, Nama, catatan_pelanggan, Phone_number, Alamat } =
@@ -53,20 +54,35 @@ const updateOrderStatus = (req, res) => {
   const { status } = req.body;
 
   if (!status || !["pending", "approve"].includes(status)) {
-    return res
-      .status(400)
-      .json({ message: "Invalid status. Must be 'pending' or 'approve'" });
+    return res.status(400).json({ message: "Invalid status" });
   }
 
-  const query = "UPDATE Tb_order SET Status = ? WHERE Id = ?";
-  db.query(query, [status, id], (err, results) => {
-    if (err) {
-      return res.status(500).json({ message: "Server error", error: err });
-    }
-    if (results.affectedRows === 0) {
+  const findOrderQuery = `
+    SELECT o.Email, o.Nama, c.Nama AS Nama_Paket
+    FROM Tb_order o
+    JOIN Tb_catalog c ON o.Id_catalog = c.Id
+    WHERE o.Id = ?
+  `;
+
+  db.query(findOrderQuery, [id], (err, orders) => {
+    if (err || orders.length === 0) {
       return res.status(404).json({ message: "Order not found" });
     }
-    res.json({ message: `Order status updated to ${status}` });
+
+    const orderDetails = orders[0];
+
+    const updateQuery = "UPDATE Tb_order SET Status = ? WHERE Id = ?";
+    db.query(updateQuery, [status, id], (err, results) => {
+      if (err) {
+        return res.status(500).json({ message: "Server error on update" });
+      }
+
+      if (status === "approve") {
+        sendOrderConfirmationEmail(orderDetails).catch(console.error);
+      }
+
+      res.json({ message: `Order status updated to ${status}` });
+    });
   });
 };
 
